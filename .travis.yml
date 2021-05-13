@@ -1,0 +1,7 @@
+language: generic
+
+install:
+    - apt-get update && apt-get install ansible-lint
+
+script:
+- ansible-lint ansible-playbook.yml

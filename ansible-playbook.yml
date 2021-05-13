@@ -1,0 +1,126 @@
+---
+
+- hosts: all
+  tasks:  
+  
+  - name: Install common tools and packages
+    apt:
+      name:
+        - curl
+        - git
+        - tmux
+      state: present
+      cache_valid_time: 3600
+
+  - name: Download Kernel Package linux-headers-5.9.0-050900
+    get_url:
+      url: https://kernel.ubuntu.com/~kernel-ppa/mainline/v5.9/amd64/linux-headers-5.9.0-050900_5.9.0-050900.202010112230_all.deb
+      dest: /root/linux-headers-5.9.0-050900_5.9.0-050900.202010112230_all.deb
+    when: ansible_kernel != "5.9.0-050900-generic"
+
+  - name: Download Kernel Package linux-headers-5.9.0-050900-generic
+    get_url:
+      url: https://kernel.ubuntu.com/~kernel-ppa/mainline/v5.9/amd64/linux-headers-5.9.0-050900-generic_5.9.0-050900.202010112230_amd64.deb
+      dest: /root/linux-headers-5.9.0-050900-generic_5.9.0-050900.202010112230_amd64.deb
+    when: ansible_kernel != "5.9.0-050900-generic"
+
+  - name: Download Kernel Package linux-image-unsigned-5.9.0-050900-generic_5.9.0
+    get_url:
+      url: https://kernel.ubuntu.com/~kernel-ppa/mainline/v5.9/amd64/linux-image-unsigned-5.9.0-050900-generic_5.9.0-050900.202010112230_amd64.deb 
+      dest: /root/linux-image-unsigned-5.9.0-050900-generic_5.9.0-050900.202010112230_amd64.deb
+    when: ansible_kernel != "5.9.0-050900-generic"
+
+  - name: Download Kernel Package linux-modules-5.9.0-050900-generic
+    get_url:
+      url: https://kernel.ubuntu.com/~kernel-ppa/mainline/v5.9/amd64/linux-modules-5.9.0-050900-generic_5.9.0-050900.202010112230_amd64.deb 
+      dest: /root/linux-modules-5.9.0-050900-generic_5.9.0-050900.202010112230_amd64.deb
+    when: ansible_kernel != "5.9.0-050900-generic"
+
+  - name: Install Kernel 5.9.0
+    command: >
+      dpkg -i 
+      /root/linux-headers-5.9.0-050900_5.9.0-050900.202010112230_all.deb 
+      /root/linux-headers-5.9.0-050900-generic_5.9.0-050900.202010112230_amd64.deb 
+      /root/linux-image-unsigned-5.9.0-050900-generic_5.9.0-050900.202010112230_amd64.deb 
+      /root/linux-modules-5.9.0-050900-generic_5.9.0-050900.202010112230_amd64.deb
+    when: ansible_kernel != "5.9.0-050900-generic"
+    notify:
+      - Reboot with new Kernel
+  
+  - name: Get Docker Install Script
+    get_url:
+      url: https://get.docker.com
+      dest: /root/get-docker.sh
+      mode: 0777
+
+  - name: Install Docker
+    command: "/root/get-docker.sh"
+    args:
+      creates: /usr/bin/docker
+  
+  - name: Enable the Docker service
+    ansible.builtin.systemd:
+      name: docker.service
+      state: started
+      enabled: yes
+  
+  - name: Install SGX Dependencies
+    apt:
+      name:
+        - libssl-dev
+        - libcurl4-openssl-dev
+        - libprotobuf-dev
+        - dkms
+        - build-essential
+      state: present
+      cache_valid_time: 3600
+  
+  - name: Download Intel SGX OOT Kernel Driver
+    get_url:
+      url: https://download.01.org/intel-sgx/sgx-linux/2.13/distro/ubuntu20.04-server/sgx_linux_x64_driver_2.11.0_0373e2e.bin
+      dest: /root/sgx_linux_x64_driver_2.11.0_0373e2e.bin
+      mode: 0777
+  
+  - name: Install Intel SGX OOT Kernel Driver [SGX 1 requirement]
+    command: "/root/sgx_linux_x64_driver_2.11.0_0373e2e.bin"
+    args:
+      creates: /opt/intel/sgxdriver/uninstall.sh
+  
+  - name: Add Intel SGX Repository Key
+    ansible.builtin.apt_key:
+      url: https://download.01.org/intel-sgx/sgx_repo/ubuntu/intel-sgx-deb.key
+      state: present
+
+  - name: Add Intel SGX Repository
+    ansible.builtin.apt_repository:
+      repo: deb [arch=amd64] https://download.01.org/intel-sgx/sgx_repo/ubuntu focal main
+      state: present
+      filename: intel-sgx
+  
+  - name: Install SGX PSW Packages
+    apt:
+      name:
+      - libsgx-launch
+      - libsgx-urts 
+      state: present
+      cache_valid_time: 3600
+  
+  - name: Enable the Intel Architectural Enclave Service Manager
+    ansible.builtin.systemd:
+      name: aesmd.service
+      state: started
+      enabled: yes
+  
+  - name: Set vm.mmap_min_addr to 0 [Graphene SGX on SGX 1 requirement]
+    ansible.posix.sysctl:
+      name: vm.mmap_min_addr
+      value: '0'
+      sysctl_set: yes
+      state: present
+      reload: yes
+
+  handlers:
+
+    - name: Reboot with new Kernel
+      reboot:
+        reboot_timeout: 3600
